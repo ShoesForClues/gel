@@ -1,5 +1,5 @@
 # gel
-A renderer agnostic GUI framework written in Lua.
+A GUI framework written in Lua.
 
 This is a hybrid GUI system which provides both retained and immediate rendering methods.
 Although it was originally written to be used for Love2D, it is renderer agnostic, 
