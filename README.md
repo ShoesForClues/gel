@@ -1,4 +1,4 @@
-# GEL - Graphical Elements Library
+# GEL - Graphic Elements Library
 A GUI framework written in Lua.
 
 This is a hybrid GUI system which provides both retained and immediate rendering methods.
