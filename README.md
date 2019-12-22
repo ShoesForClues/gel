@@ -6,7 +6,7 @@ Although it was originally written to be used for Love2D, it is renderer agnosti
 it can work on other platforms given there be an existing binding for it.
 
 # Dependencies
-Yes unfortunately this library does have dependencies.
+Unfortunately this library does require some dependencies.
 - [eztask](https://github.com/ShoesForClues/eztask)
 - [lmath](https://github.com/ShoesForClues/lmath)
 - [classic](https://github.com/rxi/classic)
