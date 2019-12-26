@@ -41,11 +41,11 @@ return function(thread)
 	}
 
 	--Enums
-	gel.enum.render_mode={
-		none      = "none", --If the platform already provides a system
-		immediate = "immediate",
-		retained  = "retained", --Recommended for static elements
-		default   = "immediate"
+	gel.enum.clip_mode={
+		none    = "none",
+		scissor = "scissor",
+		buffer  = "buffer", --Recommended for static elements
+		default = "none"
 	}
 	gel.enum.scale_type={
 		stretch = "stretch",
@@ -111,6 +111,7 @@ return function(thread)
 		self.child_removed = eztask.new_signal()
 
 		self.name:attach(function(new_name,old_name)
+			print(new_name)
 			if self.parent.value~=nil then
 				self.parent.value.children[old_name]=nil
 				self.parent.value.children[new_name]=self
@@ -179,7 +180,7 @@ return function(thread)
 	function gui_object:new(properties,children)
 		gui_object.super.new(self,properties,children)
 		
-		self.redraw=false
+		self.redraw=true
 		
 		self._draw=function()
 			if self.parent.value~=nil and self.parent.value._redraw then
@@ -196,22 +197,24 @@ return function(thread)
 		self.size         = eztask.new_property(properties.size or lmath.udim2.new(0,0,0,0))
 		self.rotation     = eztask.new_property(properties.rotation or 0)
 		self.anchor_point = eztask.new_property(properties.anchor_point or lmath.vector2.new(0,0))
-		self.clip         = eztask.new_property(properties.clip or false)
-		self.render_mode  = eztask.new_property(properties.render_mode or gel.enum.render_mode.default)
+		self.clip_mode    = eztask.new_property(properties.clip_mode or gel.enum.clip_mode.default)
 		
 		--Read only
 		self.absolute_position = eztask.new_property(lmath.vector2.new(0,0))
 		self.absolute_size     = eztask.new_property(lmath.vector2.new(0,0))
 		self.absolute_clip     = eztask.new_property(lmath.rect.new(0,0,0,0))
+		
 		self.drawing           = eztask.new_signal()
+		self.drawn             = eztask.new_signal()
 		
 		--Ugly callbacks
+		self.parent:attach(self._redraw,true)
 		self.visible:attach(self._draw,true)
 		self.position:attach(self._draw,true)
 		self.rotation:attach(self._draw,true)
 		self.anchor_point:attach(self._draw,true)
 		self.size:attach(self._redraw,true)
-		self.clip:attach(self._redraw,true)
+		self.clip_mode:attach(self._redraw,true)
 		self.child_removed:attach(self._redraw,true)
 		self.child_added:attach(self._redraw,true)
 	end
@@ -237,7 +240,7 @@ return function(thread)
 		)
 		
 		if self.parent.value==nil then
-			if self.clip.value==true then
+			if self.clip_mode.value~=gel.enum.clip_mode.none then
 				self.absolute_clip.value=lmath.rect.new(
 					self.absolute_position.value.x,
 					self.absolute_position.value.y,
@@ -248,7 +251,7 @@ return function(thread)
 				self.absolute_clip.value=lmath.rect.new(0,0,parent_size.x,parent_size.y)
 			end
 		else
-			if self.clip.value==true then
+			if self.clip_mode.value~=gel.enum.clip_mode.none then
 				self.absolute_clip.value=lmath.rect.new(
 					lmath.clamp(
 						self.absolute_position.value.x,
@@ -277,24 +280,31 @@ return function(thread)
 		end
 	end
 	
-	function gui_object:draw(top_parent)
-		if self.visible.value==true and self.render_mode.value~=gel.enum.render_mode.none then
-			local old_absolute_size=self.absolute_size.value
-			self:update_absolute()
-			self.redraw=self.redraw or self.render_mode.value==gel.enum.render_mode.immediate or self.clip.value==false or self.absolute_size.value~=old_absolute_size
-			self.drawing:invoke(top_parent)
-			if self.render_mode.value==gel.enum.render_mode.retained and self.clip.value==true and top_parent==nil then
-				top_parent=self
-			end
-			if self.redraw then
+	function gui_object:draw(top_parent,clip_parent)
+		if not self.visible.value then
+			return
+		end
+		local old_absolute_size=self.absolute_size.value
+		self:update_absolute()
+		top_parent=top_parent or self
+		self.drawing:invoke(top_parent,clip_parent)
+		if self.clip_mode.value==gel.enum.clip_mode.buffer then
+			if self.redraw or self.absolute_size.value~=old_absolute_size then
 				for _,child in pairs(self.children_sorted) do
 					if child.draw then
-						child:draw(top_parent)
+						child:draw(top_parent,self)
 					end
 				end
-				self.redraw=false
+			end
+		else
+			for _,child in pairs(self.children_sorted) do
+				if child.draw then
+					child:draw(top_parent,clip_parent)
+				end
 			end
 		end
+		self.drawn:invoke(top_parent,clip_parent)
+		self.redraw=false
 	end
 	
 	------------------------------[Frame]------------------------------
@@ -316,14 +326,14 @@ return function(thread)
 	function image_label:new(properties,children)
 		image_label.super.new(self,properties,children)
 		
-		self.image                 = eztask.new_property(properties.image)
-		self.image_transparency    = eztask.new_property(properties.image_transparency or 0)
-		self.scale_type            = eztask.new_property(properties.scale_type or gel.enum.scale_type.default)
-		self.blend_type            = eztask.new_property(properties.blend_type or gel.enum.blend_type.default)
-		self.slice_center          = eztask.new_property(properties.slice_center or lmath.rect.new(0,0,0,0))
-		self.image_color           = eztask.new_property(properties.image_color or lmath.color3.new(1,1,1))
-		self.image_rect_offset     = eztask.new_property(properties.image_rect.new_offset or lmath.vector2.new(0,0))
-		self.image_size_offset     = eztask.new_property(properties.image_size_offset or lmath.vector2.new(1,1))
+		self.image              = eztask.new_property(properties.image)
+		self.image_transparency = eztask.new_property(properties.image_transparency or 0)
+		self.scale_type         = eztask.new_property(properties.scale_type or gel.enum.scale_type.default)
+		self.blend_type         = eztask.new_property(properties.blend_type or gel.enum.blend_type.default)
+		self.slice_center       = eztask.new_property(properties.slice_center or lmath.rect.new(0,0,0,0))
+		self.image_color        = eztask.new_property(properties.image_color or lmath.color3.new(1,1,1))
+		self.image_rect_offset  = eztask.new_property(properties.image_rect_offset or lmath.vector2.new(0,0))
+		self.image_size_offset  = eztask.new_property(properties.image_size_offset or lmath.vector2.new(1,1))
 		
 		self.image:attach(self._draw,true)
 		self.image_transparency:attach(self._draw,true)
