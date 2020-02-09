@@ -1,9 +1,9 @@
 # GEL - Graphic Elements Library
 A GUI framework written in Lua.
 
-This is a hybrid GUI system which provides both retained and immediate rendering methods.
-Although it was originally written to be used for Love2D, it is renderer agnostic meaning 
-it can work on other platforms given there be an existing binding for it.
+This is a hybrid OOP GUI system that utilizes both retained and immediate rendering methods.
+Although it was originally written to be used for Love2D, it is renderer agnostic meaning it 
+can work on other platforms given there be an existing binding for it.
 
 # Dependencies
 Unfortunately this library does require some dependencies.
