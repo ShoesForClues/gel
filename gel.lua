@@ -1,16 +1,7 @@
 --[[
- _______________________________________
-|Graphic_Elements_Library_________[-][x]|
-|     ______    ______    __            |
-|    /\  ___\  /\  ___\  /\ \           |
-|    \ \ \__ \ \ \  __\  \ \ \____      |
-|     \ \_____\ \ \_____\ \ \_____\     |
-|      \/_____/  \/_____/  \/_____/     |
-|                                       |
-|   Created by ShoesForClues (c) 2020   |
-|_______________________________________|
-
 MIT License
+
+Copyright (c) 2020 ShoesForClues
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -31,10 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ]]
 
-return function(thread)
-	local eztask = thread:depend "eztask"
-	local class  = thread:depend "class"
-	local lmath  = thread:depend "lmath"
+return function(lumiere)
+	local eztask = lumiere:depend "eztask"
+	local class  = lumiere:depend "class"
+	local lmath  = lumiere:depend "lmath"
 
 	local min    = math.min
 	local max    = math.max
@@ -46,9 +37,9 @@ return function(thread)
 	local insert = table.insert
 	
 	local gel={
-		_version = {0,5,3},
+		_version = {0,5,4},
 		enum     = {},
-		elements = {}
+		class    = {}
 	}
 	
 	--Enums
@@ -57,10 +48,13 @@ return function(thread)
 		slice   = "slice",
 		tile    = "tile"
 	}
+	
 	gel.enum.filter_mode={
 		nearest  = "nearest",
-		bilinear = "bilinear"
+		bilinear = "bilinear",
+		bicubic  = "bicubic"
 	}
+	
 	gel.enum.alignment={
 		x={
 			left   = "left",
@@ -75,14 +69,20 @@ return function(thread)
 	}
 	
 	--Functions
-	function gel.wrap(element,method,wrap)
-		assert(element[method],("Method %s does not exist in %s"):format(method,element))
+	function gel.wrap(class_name,method,wrap)
+		local class=gel.class[class_name]
+		assert(class,"No class named "..tostring(class_name))
+		assert(class[method],("No method named %s in class %s"):format(method,class))
 		assert(wrap,"Cannot wrap method with nil")
-		
-		local _method=element[method]
-		element[method]=function(...) _method(...);wrap(...) end
-		
-		return element
+		local _method=class[method]
+		class[method]=function(...) _method(...);wrap(...) end
+		return class
+	end
+	
+	function gel.new(class_name)
+		local class=gel.class[class_name]
+		assert(class,"No class named "..tostring(class_name))
+		return class()
 	end
 	
 	------------------------------[gel_object]------------------------------
@@ -91,60 +91,93 @@ return function(thread)
 	function gel_object:__tostring()
 		return "gel_object"
 	end
-	
+
 	function gel_object:new()
-		self.children = {}
+		self.children      = {}
+		self.children_name = {}
 		
 		self.parent = eztask.property.new()
+		self.name   = eztask.property.new(tostring(self))
 		self.index  = eztask.property.new()
 		
 		self.child_added   = eztask.signal.new()
 		self.child_removed = eztask.signal.new()
 		
-		self.parent:attach(function(new_parent,old_parent)
+		self.parent:attach(function(_,new_parent,old_parent)
+			local name=self.name.value
+			if name==nil then
+				return
+			end
 			if old_parent then
-				if old_parent.children[self.index.value]==self then
-					remove(old_parent.children,self.index.value)
-				else
-					for i=1,#old_parent.children do
-						if old_parent.children[i]==self then
-							remove(old_parent.children,i)
+				local children=old_parent.children
+				for i=1,#children do
+					if children[i]==self then
+						remove(children,i)
+						break
+					end
+				end
+				if old_parent.children_name[name] then
+					local objects=old_parent.children_name[name]
+					for i=1,#objects do
+						if objects[i]==self then
+							remove(objects,i)
 							break
 						end
+					end
+					if #objects==0 then
+						old_parent.children_name[name]=nil
 					end
 				end
 				old_parent.child_removed:invoke(self)
 			end
 			if new_parent then
+				local objects=new_parent.children_name[name] or {}
+				objects[#objects+1]=self
+				new_parent.children_name[name]=objects
 				self.index._value=#new_parent.children+1
-				insert(new_parent.children,self.index.value,self)
+				new_parent.children[self.index.value]=self
 				new_parent.child_added:invoke(self)
 			end
-		end)
+		end,true)
 		
-		self.index:attach(function(new_index,old_index)
+		self.name:attach(function(_,new_name,old_name)
 			local parent=self.parent.value
 			if not parent then
 				return
 			end
-			if old_index then
-				if parent.children[old_index]==self then
-					remove(parent.children,old_index)
-				else
-					for i=1,#parent.children do
-						if parent.children[i]==self then
-							remove(parent.children,i)
-							break
-						end
+			if old_name and parent.children_name[old_name] then
+				local objects=parent.children_name[old_name]
+				for i=1,#objects do
+					if objects[i]==self then
+						remove(objects,i)
+						break
 					end
 				end
+				if #objects==0 then
+					parent.children_name[old_name]=nil
+				end
 			end
-			if new_index then
-				insert(parent.children,lmath.clamp(new_index,1,#parent.children),self)
+			if new_name then
+				local objects=parent.children_name[new_name] or {}
+				objects[#objects+1]=self
+				parent.children_name[new_name]=objects
 			end
-		end)
+		end,true)
+		
+		self.index:attach(function(_,new_index,old_index)
+			if not self.parent.value then
+				return
+			end
+			for i,child in pairs(self.children) do
+				if child==self then
+					remove(self.children,i)
+					break
+				end
+			end
+			insert(self.children,lmath.clamp(new_index or #self.children+1,1,#self.children+1))
+		end,true)
 	end
-	
+
 	function gel_object:delete()
 		for _,child in pairs(self.children) do
 			child:delete()
@@ -153,10 +186,103 @@ return function(thread)
 		self.parent.value=nil
 		
 		self.parent:detach()
+		self.name:detach()
 		self.index:detach()
 		
 		self.child_added:detach()
 		self.child_removed:detach()
+	end
+
+	function gel_object:get_children(name)
+		if name then
+			return self.children_name[name]
+		else
+			return self.children
+		end
+	end
+
+	function gel_object:get_child(name)
+		if self.children_name[name] then
+			return self.children_name[name][1]
+		end
+	end
+	
+	------------------------------[gui]------------------------------
+	local gui=gel_object:extend()
+	
+	function gui:__tostring()
+		return "gui"
+	end
+	
+	function gui:new()
+		gui.super.new(self)
+		
+		self.focused_elements = {}
+		
+		self.resolution      = eztask.property.new(lmath.vector2.new(0,0))
+		self.cursor_position = eztask.property.new(lmath.vector2.new(0,0))
+		
+		self.cursor_pressed  = eztask.signal.new()
+		self.cursor_released = eztask.signal.new()
+		
+		self.cursor_position:attach(function(_,position)
+			local resolution_x=self.resolution.value.x
+			local resolution_y=self.resolution.value.y
+			
+			local cursor_x=lmath.clamp(position.x,0,resolution_x-1)
+			local cursor_y=lmath.clamp(position.y,0,resolution_y-1)
+			
+			for _,element in pairs(self.focused_elements) do
+				local abs_pos=element.absolute_position.value
+				local abs_size=element.absolute_size.value
+				local in_bound=(
+					cursor_x>=abs_pos.x and 
+					cursor_y>=abs_pos.x and 
+					cursor_x<abs_pos.x+abs_size.x and 
+					cursor_y<abs_pos.y+abs_size.y
+				)
+				if not in_bound then
+					element.focused.value=false
+					self.focused_elements[element]=nil
+				end
+			end
+			
+			for _,child in pairs(self.children) do
+				if child:is(gel.class.element) then
+					child:append_cursor(cursor_x,cursor_y)
+				end
+			end
+		end,true)
+		
+		self.cursor_pressed:attach(function(_,button,x,y)
+			for _,element in pairs(self.focused_elements) do
+				element.cursor_pressed:invoke(button,x,y)
+			end
+		end,true)
+		
+		self.cursor_released:attach(function(_,button,x,y)
+			for _,element in pairs(self.focused_elements) do
+				element.cursor_released:invoke(button,x,y)
+			end
+		end,true)
+	end
+	
+	function gui:delete()
+		gui.super.delete(self)
+		
+		self.resolution:detach()
+		self.cursor_position:detach()
+		
+		self.cursor_pressed:detach()
+		self.cursor_released:detach()
+	end
+	
+	function gui:draw()
+		for _,child in pairs(self.children) do
+			if child.render then
+				child:render()
+			end
+		end
 	end
 	
 	------------------------------[element]------------------------------
@@ -184,7 +310,6 @@ return function(thread)
 			self._draw()
 		end
 		
-		self.top_parent   = eztask.property.new()
 		self.visible      = eztask.property.new(false)
 		self.position     = eztask.property.new(lmath.udim2.new(0,0,0,0))
 		self.size         = eztask.property.new(lmath.udim2.new(0,0,0,0))
@@ -193,6 +318,8 @@ return function(thread)
 		self.clip         = eztask.property.new(false)
 		
 		--Read only
+		self.gui               = eztask.property.new()
+		self.clip_parent       = eztask.property.new()
 		self.absolute_size     = eztask.property.new(lmath.vector2.new(0,0))
 		self.absolute_position = eztask.property.new(lmath.vector2.new(0,0))
 		self.absolute_anchor   = eztask.property.new(lmath.vector2.new(0,0))
@@ -200,6 +327,12 @@ return function(thread)
 		self.relative_position = eztask.property.new(lmath.vector2.new(0,0))
 		self.relative_rotation = eztask.property.new(self.rotation.value)
 		self.rendering         = eztask.property.new()
+		self.focused           = eztask.property.new(false)
+		self.selected          = eztask.property.new(false)
+		
+		self.cursor_clicked  = eztask.signal.new()
+		self.cursor_pressed  = eztask.signal.new()
+		self.cursor_released = eztask.signal.new()
 		
 		--Ugly callbacks
 		self.parent:attach(self._redraw,true)
@@ -217,6 +350,56 @@ return function(thread)
 		
 		self.child_removed:attach(self._redraw,true)
 		self.child_added:attach(self._redraw,true)
+		
+		self.parent:attach(function(_,new_parent,old_parent)
+			if new_parent then
+				if new_parent:is(gui) then
+					self.gui.value=new_parent
+				elseif new_parent:is(element) then
+					self.gui.value=new_parent.gui.value
+				else
+					self.gui.value=nil
+				end
+			else
+				self.gui.value=nil
+			end
+		end,true)
+		
+		self.gui:attach(function(_,new_gui,old_gui)
+			if old_gui then
+				old_gui.focused_elements[self]=nil
+			end
+			for _,child in pairs(self.children) do
+				if child.gui then
+					child.gui.value=new_gui
+				end
+			end
+		end,true)
+		
+		self.focused:attach(function(_,focused)
+			if not self.gui.value then
+				return
+			end
+			if not focused then
+				self.selected.value=false
+				self.gui.value.focused_elements[self]=nil
+			end
+		end,true)
+		
+		self.cursor_pressed:attach(function(_,button,x,y)
+			if button==1 then
+				self.selected.value=true
+			end
+		end,true)
+		
+		self.cursor_released:attach(function(_,button,x,y)
+			if button==1 then
+				self.selected.value=false
+			end
+			if self.focused.value then
+				self.cursor_clicked:invoke(button,x,y)
+			end
+		end,true)
 	end
 	
 	function element:delete()
@@ -229,12 +412,21 @@ return function(thread)
 		self.anchor_point:detach()
 		self.clip:detach()
 		
+		self.gui:detach()
+		self.clip_parent:detach()
 		self.absolute_size:detach()
 		self.absolute_position:detach()
 		self.absolute_anchor:detach()
 		self.absolute_rotation:detach()
 		self.relative_position:detach()
 		self.relative_rotation:detach()
+		self.rendering:detach()
+		self.focused:detach()
+		self.selected:detach()
+		
+		self.cursor_clicked:detach()
+		self.cursor_pressed:detach()
+		self.cursor_released:detach()
 	end
 	
 	function element:update_geometry() --This was a huge pain
@@ -253,8 +445,9 @@ return function(thread)
 		local rel_pos_y    = self.relative_position.value.y
 		local rel_rot      = self.relative_rotation.value
 		
-		if parent then
-			local top_parent=self.top_parent.value or parent
+		if parent and parent:is(element) then
+			local clip_parent=self.clip_parent.value or parent
+			
 			local parent_abs_size = parent.absolute_size.value
 			local parent_abs_pos  = parent.absolute_position.value
 			
@@ -293,37 +486,41 @@ return function(thread)
 				self.rotation.value
 			)
 			
-			local n_top_parent_abs_pos_x,n_top_parent_abs_pos_y=lmath.rotate_point(
-				top_parent.absolute_position.value.x,
-				top_parent.absolute_position.value.y,
-				top_parent.absolute_anchor.value.x,
-				top_parent.absolute_anchor.value.y,
-				-top_parent.absolute_rotation.value
+			local n_clip_parent_abs_pos_x,n_clip_parent_abs_pos_y=lmath.rotate_point(
+				clip_parent.absolute_position.value.x,
+				clip_parent.absolute_position.value.y,
+				clip_parent.absolute_anchor.value.x,
+				clip_parent.absolute_anchor.value.y,
+				-clip_parent.absolute_rotation.value
 			)
 			
 			local n_abs_pos_x,n_abs_pos_y=lmath.rotate_point(
 				abs_pos_x,
 				abs_pos_y,
-				top_parent.absolute_anchor.value.x,
-				top_parent.absolute_anchor.value.y,
-				-top_parent.absolute_rotation.value
+				clip_parent.absolute_anchor.value.x,
+				clip_parent.absolute_anchor.value.y,
+				-clip_parent.absolute_rotation.value
 			)
 			
-			rel_pos_x=floor(n_abs_pos_x-n_top_parent_abs_pos_x)
-			rel_pos_y=floor(n_abs_pos_y-n_top_parent_abs_pos_y)
+			rel_pos_x=floor(n_abs_pos_x-n_clip_parent_abs_pos_x)
+			rel_pos_y=floor(n_abs_pos_y-n_clip_parent_abs_pos_y)
 			
-			rel_rot=abs_rot-top_parent.absolute_rotation.value
+			rel_rot=abs_rot-clip_parent.absolute_rotation.value
 		else
-			abs_size_x=size.x.offset
-			abs_size_y=size.y.offset
-			
-			abs_rot=self.rotation.value
+			if self.gui.value then
+				abs_size_x=floor(self.gui.value.resolution.value.x*size.x.scale+size.x.offset)
+				abs_size_y=floor(self.gui.value.resolution.value.y*size.y.scale+size.y.offset)
+				abs_anchor_x=floor(self.gui.value.resolution.value.x*position.x.scale+position.x.offset)
+				abs_anchor_y=floor(self.gui.value.resolution.value.y*position.y.scale+position.y.offset)
+			else
+				abs_size_x=size.x.offset
+				abs_size_y=size.y.offset
+				abs_anchor_x=position.x.offset
+				abs_anchor_y=position.y.offset
+			end
 			
 			local anchor_size_x=abs_size_x*self.anchor_point.value.x
 			local anchor_size_y=abs_size_y*self.anchor_point.value.y
-			
-			abs_anchor_x=position.x.offset
-			abs_anchor_y=position.y.offset
 			
 			abs_pos_x,abs_pos_y=lmath.rotate_point(
 				abs_anchor_x-anchor_size_x,
@@ -332,6 +529,8 @@ return function(thread)
 				abs_anchor_y,
 				self.rotation.value
 			)
+			
+			abs_rot=self.rotation.value
 			
 			rel_pos_x=abs_pos_x
 			rel_pos_y=abs_pos_y
@@ -382,13 +581,17 @@ return function(thread)
 		if self.redraw or not self.clip.value then
 			if self.clip.value then
 				for _,child in pairs(self.children) do
-					child.top_parent.value=self
-					child:render()
+					if child:is(element) then
+						child.clip_parent.value=self
+						child:render()
+					end
 				end
 			else
 				for _,child in pairs(self.children) do
-					child.top_parent.value=self.top_parent.value
-					child:render()
+					if child:is(element) then
+						child.clip_parent.value=self.clip_parent.value
+						child:render()
+					end
 				end
 			end
 			self.redraw=false
@@ -398,47 +601,38 @@ return function(thread)
 		self.rendering.value=nil
 	end
 	
-	------------------------------[gui]------------------------------
-	local gui=element:extend()
-	
-	function gui:__tostring()
-		return "gui"
-	end
-	
-	function gui:new()
-		gui.super.new(self)
+	function element:append_cursor(x,y)
+		local abs_pos_x=self.absolute_position.value.x
+		local abs_pos_y=self.absolute_position.value.y
+		local abs_size_x=self.absolute_size.value.x
+		local abs_size_y=self.absolute_size.value.y
 		
-		self.focused_elements={}
+		local rel_x,rel_y=lmath.rotate_point(
+			x,y,
+			abs_pos_x,
+			abs_pos_y,
+			-self.absolute_rotation.value
+		)
 		
-		self.cursor_position = eztask.property.new(lmath.vector2.new(0,0))
+		local in_bound=(
+			rel_x>=abs_pos_x and 
+			rel_y>=abs_pos_y and 
+			rel_x<abs_pos_x+abs_size_x and 
+			rel_y<abs_pos_y+abs_size_y
+		)
 		
-		self.cursor_position:attach(function(position)
-			
-			
-			for _,element in pairs(self.focused_elements) do
-				local abs_pos=element.absolute_position.value
-				local abs_size=element.absolute_size.value
-				
-				local in_bound=(
-					position.x>=abs_pos.x and 
-					position.y>=abs_pos.x and 
-					position.x<=abs_pos.x+abs_size.x and 
-					position.y<=abs_pos.y+abs_size.y
-				)
-				
-				if not in_bound then
-					element.interact.focused.value=false
-					element.interact.selected.value=false
-					self.focused_elements[element]=nil
+		self.focused.value=in_bound
+		
+		if in_bound or not self.clip.value then
+			if in_bound and self.gui.value then
+				self.gui.value.focused_elements[self]=self
+			end
+			for _,child in pairs(self.children) do
+				if child:is(element) then
+					child:append_cursor(x,y)
 				end
 			end
-		end,true)
-	end
-	
-	function gui:delete()
-		gui.super.delete(self)
-		
-		self.cursor_position:detach()
+		end
 	end
 	
 	------------------------------[frame]------------------------------
@@ -463,48 +657,6 @@ return function(thread)
 		
 		self.background_color:detach()
 		self.background_opacity:detach()
-	end
-	
-	------------------------------[image_label]------------------------------
-	local image_label=frame:extend()
-	
-	function image_label:__tostring()
-		return "image_label"
-	end
-	
-	function image_label:new()
-		image_label.super.new(self)
-		
-		self.image         = eztask.property.new()
-		self.image_opacity = eztask.property.new(1)
-		self.image_color   = eztask.property.new(lmath.color3.new(1,1,1))
-		self.scale_mode    = eztask.property.new(gel.enum.scale_mode.stretch)
-		self.filter_mode   = eztask.property.new(gel.enum.filter_mode.nearest)
-		self.slice_center  = eztask.property.new(lmath.rect.new(0,0,0,0))
-		self.tile_size     = eztask.property.new(lmath.udim2.new(1,0,1,0))
-		self.rect_offset   = eztask.property.new(lmath.rect.new(0,0,1,1))
-		
-		self.image:attach(self._draw,true)
-		self.image_opacity:attach(self._draw,true)
-		self.image_color:attach(self._draw,true)
-		self.scale_mode:attach(self._draw,true)
-		self.filter_mode:attach(self._draw,true)
-		self.slice_center:attach(self._draw,true)
-		self.tile_size:attach(self._draw,true)
-		self.rect_offset:attach(self._draw,true)
-	end
-	
-	function image_label:delete()
-		image_label.super.delete(self)
-		
-		self.image:detach()
-		self.image_opacity:detach()
-		self.image_color:detach()
-		self.scale_mode:detach()
-		self.filter_mode:detach()
-		self.slice_center:detach()
-		self.tile_size:detach()
-		self.rect_offset:detach()
 	end
 	
 	------------------------------[text_label]------------------------------
@@ -566,13 +718,56 @@ return function(thread)
 		self.highlighted:detach()
 	end
 	
+	------------------------------[image_label]------------------------------
+	local image_label=frame:extend()
+	
+	function image_label:__tostring()
+		return "image_label"
+	end
+	
+	function image_label:new()
+		image_label.super.new(self)
+		
+		self.image         = eztask.property.new()
+		self.image_opacity = eztask.property.new(1)
+		self.image_color   = eztask.property.new(lmath.color3.new(1,1,1))
+		self.scale_mode    = eztask.property.new(gel.enum.scale_mode.stretch)
+		self.filter_mode   = eztask.property.new(gel.enum.filter_mode.nearest)
+		self.slice_center  = eztask.property.new(lmath.rect.new(0,0,0,0))
+		self.tile_size     = eztask.property.new(lmath.udim2.new(1,0,1,0))
+		self.rect_offset   = eztask.property.new(lmath.rect.new(0,0,1,1))
+		
+		self.image:attach(self._draw,true)
+		self.image_opacity:attach(self._draw,true)
+		self.image_color:attach(self._draw,true)
+		self.scale_mode:attach(self._draw,true)
+		self.filter_mode:attach(self._draw,true)
+		self.slice_center:attach(self._draw,true)
+		self.tile_size:attach(self._draw,true)
+		self.rect_offset:attach(self._draw,true)
+	end
+	
+	function image_label:delete()
+		image_label.super.delete(self)
+		
+		self.image:detach()
+		self.image_opacity:detach()
+		self.image_color:detach()
+		self.scale_mode:detach()
+		self.filter_mode:detach()
+		self.slice_center:detach()
+		self.tile_size:detach()
+		self.rect_offset:detach()
+	end
+	
 	----------------------------------------------------------------------
-	gel.elements.gel_object  = gel_object
-	gel.elements.element     = element
-	gel.elements.gui         = gui
-	gel.elements.frame       = frame
-	gel.elements.image_label = image_label
-	gel.elements.text_label  = text_label
+	gel.class.gel_object  = gel_object
+	gel.class.interactor  = interactor
+	gel.class.element     = element
+	gel.class.gui         = gui
+	gel.class.frame       = frame
+	gel.class.image_label = image_label
+	gel.class.text_label  = text_label
 	
 	return gel
 end
