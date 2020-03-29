@@ -37,7 +37,7 @@ return function(lumiere)
 	local insert = table.insert
 	
 	local gel={
-		_version = {0,5,4},
+		_version = {0,5,5},
 		enum     = {},
 		class    = {}
 	}
@@ -168,13 +168,34 @@ return function(lumiere)
 			if not self.parent.value then
 				return
 			end
-			for i,child in pairs(self.children) do
+			local parent_children=self.parent.value.children
+			
+			if parent_children[new_index]==self then
+				return
+			end
+			
+			for i,child in pairs(parent_children) do
 				if child==self then
-					remove(self.children,i)
+					remove(parent_children,i)
 					break
 				end
 			end
-			insert(self.children,lmath.clamp(new_index or #self.children+1,1,#self.children+1))
+			
+			insert(
+				parent_children,
+				lmath.clamp(
+					new_index or #parent_children+1,
+					1,
+					#parent_children+1
+				),
+				self
+			)
+			
+			for i,child in pairs(parent_children) do
+				if child~=self then
+					child.index.value=i
+				end
+			end
 		end,true)
 	end
 
@@ -217,7 +238,7 @@ return function(lumiere)
 	function gui:new()
 		gui.super.new(self)
 		
-		self.focused_elements = {}
+		self.targeted_elements = {}
 		
 		self.resolution      = eztask.property.new(lmath.vector2.new(0,0))
 		self.cursor_position = eztask.property.new(lmath.vector2.new(0,0))
@@ -226,44 +247,13 @@ return function(lumiere)
 		self.cursor_released = eztask.signal.new()
 		
 		self.cursor_position:attach(function(_,position)
-			local resolution_x=self.resolution.value.x
-			local resolution_y=self.resolution.value.y
-			
-			local cursor_x=lmath.clamp(position.x,0,resolution_x-1)
-			local cursor_y=lmath.clamp(position.y,0,resolution_y-1)
-			
-			for _,element in pairs(self.focused_elements) do
-				local abs_pos=element.absolute_position.value
-				local abs_size=element.absolute_size.value
-				local in_bound=(
-					cursor_x>=abs_pos.x and 
-					cursor_y>=abs_pos.x and 
-					cursor_x<abs_pos.x+abs_size.x and 
-					cursor_y<abs_pos.y+abs_size.y
-				)
-				if not in_bound then
-					element.focused.value=false
-					self.focused_elements[element]=nil
-				end
-			end
-			
-			for _,child in pairs(self.children) do
-				if child:is(gel.class.element) then
-					child:append_cursor(cursor_x,cursor_y)
-				end
-			end
+			self:append_cursor(position.x,position.y)
 		end,true)
-		
 		self.cursor_pressed:attach(function(_,button,x,y)
-			for _,element in pairs(self.focused_elements) do
-				element.cursor_pressed:invoke(button,x,y)
-			end
+			self:append_cursor(x,y,button,1,true)
 		end,true)
-		
 		self.cursor_released:attach(function(_,button,x,y)
-			for _,element in pairs(self.focused_elements) do
-				element.cursor_released:invoke(button,x,y)
-			end
+			self:append_cursor(x,y,button,1,false)
 		end,true)
 	end
 	
@@ -281,6 +271,38 @@ return function(lumiere)
 		for _,child in pairs(self.children) do
 			if child.render then
 				child:render()
+			end
+		end
+	end
+	
+	function gui:append_cursor(x,y,button,id,state)
+		local resolution_x=self.resolution.value.x
+		local resolution_y=self.resolution.value.y
+		
+		local cursor_x=lmath.clamp(x,0,resolution_x-1)
+		local cursor_y=lmath.clamp(y,0,resolution_y-1)
+		
+		for _,element in pairs(self.targeted_elements) do
+			local abs_pos=element.absolute_position.value
+			local abs_size=element.absolute_size.value
+			local in_bound=(
+				cursor_x>=abs_pos.x and 
+				cursor_y>=abs_pos.x and 
+				cursor_x<abs_pos.x+abs_size.x and 
+				cursor_y<abs_pos.y+abs_size.y
+			)
+			if not in_bound then
+				element.targeted.value=false
+				self.targeted_elements[element]=nil
+			end
+		end
+		
+		for i=#self.children,1,-1 do
+			local child=self.children[i]
+			if child and child:is(gel.class.element) then
+				if child:append_cursor(cursor_x,cursor_y,button,id,state) then
+					break
+				end
 			end
 		end
 	end
@@ -316,6 +338,7 @@ return function(lumiere)
 		self.rotation     = eztask.property.new(0)
 		self.anchor_point = eztask.property.new(lmath.vector2.new(0,0))
 		self.clip         = eztask.property.new(false)
+		self.active       = eztask.property.new(false)
 		
 		--Read only
 		self.gui               = eztask.property.new()
@@ -327,15 +350,16 @@ return function(lumiere)
 		self.relative_position = eztask.property.new(lmath.vector2.new(0,0))
 		self.relative_rotation = eztask.property.new(self.rotation.value)
 		self.rendering         = eztask.property.new()
-		self.focused           = eztask.property.new(false)
+		self.targeted          = eztask.property.new(false)
 		self.selected          = eztask.property.new(false)
 		
-		self.cursor_clicked  = eztask.signal.new()
-		self.cursor_pressed  = eztask.signal.new()
-		self.cursor_released = eztask.signal.new()
+		self.clicked  = eztask.signal.new()
+		self.pressed  = eztask.signal.new()
+		self.released = eztask.signal.new()
 		
 		--Ugly callbacks
 		self.parent:attach(self._redraw,true)
+		self.index:attach(self._draw,true)
 		self.visible:attach(self._draw,true)
 		self.position:attach(self._draw,true)
 		self.rotation:attach(self._draw,true)
@@ -367,7 +391,7 @@ return function(lumiere)
 		
 		self.gui:attach(function(_,new_gui,old_gui)
 			if old_gui then
-				old_gui.focused_elements[self]=nil
+				old_gui.targeted_elements[self]=nil
 			end
 			for _,child in pairs(self.children) do
 				if child.gui then
@@ -376,28 +400,28 @@ return function(lumiere)
 			end
 		end,true)
 		
-		self.focused:attach(function(_,focused)
+		self.targeted:attach(function(_,targeted)
 			if not self.gui.value then
 				return
 			end
-			if not focused then
+			if not targeted then
 				self.selected.value=false
-				self.gui.value.focused_elements[self]=nil
+				self.gui.value.targeted_elements[self]=nil
 			end
 		end,true)
 		
-		self.cursor_pressed:attach(function(_,button,x,y)
+		self.pressed:attach(function(_,button,id,x,y)
 			if button==1 then
 				self.selected.value=true
 			end
 		end,true)
 		
-		self.cursor_released:attach(function(_,button,x,y)
+		self.released:attach(function(_,button,id,x,y)
 			if button==1 then
 				self.selected.value=false
 			end
-			if self.focused.value then
-				self.cursor_clicked:invoke(button,x,y)
+			if self.targeted.value then
+				self.clicked:invoke(button,id,x,y)
 			end
 		end,true)
 	end
@@ -408,7 +432,7 @@ return function(lumiere)
 		self.visible:detach()
 		self.position:detach()
 		self.size:detach()
-		size.rotation:detach()
+		self.rotation:detach()
 		self.anchor_point:detach()
 		self.clip:detach()
 		
@@ -421,15 +445,15 @@ return function(lumiere)
 		self.relative_position:detach()
 		self.relative_rotation:detach()
 		self.rendering:detach()
-		self.focused:detach()
+		self.targeted:detach()
 		self.selected:detach()
 		
-		self.cursor_clicked:detach()
-		self.cursor_pressed:detach()
-		self.cursor_released:detach()
+		self.clicked:detach()
+		self.pressed:detach()
+		self.released:detach()
 	end
 	
-	function element:update_geometry() --This was a huge pain
+	function element:update_geometry() --This was a huge pain, probably should've used matrices...
 		local parent   = self.parent.value
 		local position = self.position.value
 		local size     = self.size.value
@@ -538,35 +562,51 @@ return function(lumiere)
 			rel_rot=self.rotation.value
 		end
 		
+		local update_child_geometry=false
+		
 		if self.absolute_size.value.x~=abs_size_x or self.absolute_size.value.y~=abs_size_y then
 			self.absolute_size.value.x=abs_size_x
 			self.absolute_size.value.y=abs_size_y
 			self.absolute_size:invoke(self.absolute_size.value)
+			update_child_geometry=true
 		end
 		if self.absolute_position.value.x~=abs_pos_x or self.absolute_position.value.y~=abs_pos_y then
 			self.absolute_position.value.x=abs_pos_x
 			self.absolute_position.value.y=abs_pos_y
 			self.absolute_position:invoke(self.absolute_position.value)
+			update_child_geometry=true
 		end
 		if self.absolute_anchor.value.x~=abs_anchor_x or self.absolute_anchor.value.y~=abs_anchor_y then
 			self.absolute_anchor.value.x=abs_anchor_x
 			self.absolute_anchor.value.y=abs_anchor_y
 			self.absolute_anchor:invoke(self.absolute_anchor.value)
+			update_child_geometry=true
 		end
 		if self.relative_position.value.x~=rel_pos_x or self.relative_position.value.y~=rel_pos_y then
 			self.relative_position.value.x=rel_pos_x
 			self.relative_position.value.y=rel_pos_y
 			self.relative_position:invoke(self.relative_position.value)
+			update_child_geometry=true
 		end
 		if self.absolute_rotation.value~=abs_rot then
 			self.absolute_rotation.value=abs_rot
+			update_child_geometry=true
 		end
 		if self.relative_rotation.value~=rel_rot then
 			self.relative_rotation.value=rel_rot
+			update_child_geometry=true
+		end
+		
+		if update_child_geometry then
+			for _,child in pairs(self.children) do
+				if child.update_geometry then
+					child:update_geometry()
+				end
+			end
 		end
 	end
 	
-	function element:draw() end
+	function element:draw() end --Abstract
 	function element:draw_render() end
 	function element:draw_buffer() end
 	
@@ -601,7 +641,7 @@ return function(lumiere)
 		self.rendering.value=nil
 	end
 	
-	function element:append_cursor(x,y)
+	function element:append_cursor(x,y,button,id,state) --Mouse ID=1, Touch ID=2,3,4...
 		local abs_pos_x=self.absolute_position.value.x
 		local abs_pos_y=self.absolute_position.value.y
 		local abs_size_x=self.absolute_size.value.x
@@ -621,18 +661,34 @@ return function(lumiere)
 			rel_y<abs_pos_y+abs_size_y
 		)
 		
-		self.focused.value=in_bound
+		local debounce=false
+		
+		self.targeted.value=in_bound
+		
+		if in_bound and self.gui.value then
+			self.gui.value.targeted_elements[self]=self
+			if button then
+				if state then
+					self.pressed:invoke(button,id,x,y)
+				else
+					self.released:invoke(button,id,x,y)
+				end
+				debounce=self.active.value
+			end
+		end
 		
 		if in_bound or not self.clip.value then
-			if in_bound and self.gui.value then
-				self.gui.value.focused_elements[self]=self
-			end
-			for _,child in pairs(self.children) do
-				if child:is(element) then
-					child:append_cursor(x,y)
+			for i=#self.children,1,-1 do
+				local child=self.children[i]
+				if child and child:is(element) then
+					if child:append_cursor(x,y,button,id,state) then
+						break
+					end
 				end
 			end
 		end
+		
+		return debounce
 	end
 	
 	------------------------------[frame]------------------------------
