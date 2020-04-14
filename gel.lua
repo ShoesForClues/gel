@@ -37,7 +37,7 @@ return function(lumiere)
 	local insert = table.insert
 	
 	local gel={
-		_version = {0,5,5},
+		_version = {0,5,6},
 		enum     = {},
 		class    = {}
 	}
@@ -71,18 +71,46 @@ return function(lumiere)
 	--Functions
 	function gel.wrap(class_name,method,wrap)
 		local class=gel.class[class_name]
-		assert(class,"No class named "..tostring(class_name))
-		assert(class[method],("No method named %s in class %s"):format(method,class))
-		assert(wrap,"Cannot wrap method with nil")
+		
+		assert(
+			class,
+			"No class named "..tostring(class_name)
+		)
+		assert(
+			class[method],
+			("No method named %s in class %s"):format(method,class)
+		)
+		assert(
+			wrap,
+			"Cannot wrap method with nil"
+		)
+		
 		local _method=class[method]
 		class[method]=function(...) _method(...);wrap(...) end
+		
 		return class
 	end
 	
 	function gel.new(class_name)
 		local class=gel.class[class_name]
-		assert(class,"No class named "..tostring(class_name))
+		
+		assert(
+			class,
+			"No class named "..tostring(class_name)
+		)
+		
 		return class()
+	end
+	
+	--Wrapped
+	function gel.get_font_height(font)
+		return 0
+	end
+	function gel.get_text_width(text,font,font_size)
+		return 0
+	end
+	function gel.get_text_wrap(text,font,font_size,wrap)
+		return 0,0,{}
 	end
 	
 	------------------------------[gel_object]------------------------------
@@ -110,29 +138,23 @@ return function(lumiere)
 			end
 			if old_parent then
 				local children=old_parent.children
+				if old_parent.children_name[name] then
+					old_parent.children_name[name][self]=nil
+				end
 				for i=1,#children do
 					if children[i]==self then
 						remove(children,i)
 						break
 					end
 				end
-				if old_parent.children_name[name] then
-					local objects=old_parent.children_name[name]
-					for i=1,#objects do
-						if objects[i]==self then
-							remove(objects,i)
-							break
-						end
-					end
-					if #objects==0 then
-						old_parent.children_name[name]=nil
-					end
+				for i=1,#children do
+					children[i].index.value=i
 				end
 				old_parent.child_removed:invoke(self)
 			end
 			if new_parent then
 				local objects=new_parent.children_name[name] or {}
-				objects[#objects+1]=self
+				objects[self]=self
 				new_parent.children_name[name]=objects
 				self.index._value=#new_parent.children+1
 				new_parent.children[self.index.value]=self
@@ -146,20 +168,11 @@ return function(lumiere)
 				return
 			end
 			if old_name and parent.children_name[old_name] then
-				local objects=parent.children_name[old_name]
-				for i=1,#objects do
-					if objects[i]==self then
-						remove(objects,i)
-						break
-					end
-				end
-				if #objects==0 then
-					parent.children_name[old_name]=nil
-				end
+				parent.children_name[old_name][self]=nil
 			end
 			if new_name then
 				local objects=parent.children_name[new_name] or {}
-				objects[#objects+1]=self
+				objects[self]=self
 				parent.children_name[new_name]=objects
 			end
 		end,true)
@@ -168,30 +181,22 @@ return function(lumiere)
 			if not self.parent.value then
 				return
 			end
-			local parent_children=self.parent.value.children
-			
-			if parent_children[new_index]==self then
+			local children=self.parent.value.children
+			if children[new_index]==self then
 				return
 			end
-			
-			for i,child in pairs(parent_children) do
+			for i,child in pairs(children) do
 				if child==self then
-					remove(parent_children,i)
+					remove(children,i)
 					break
 				end
 			end
-			
 			insert(
-				parent_children,
-				lmath.clamp(
-					new_index or #parent_children+1,
-					1,
-					#parent_children+1
-				),
+				children,
+				lmath.clamp(new_index or #children+1,1,#children+1),
 				self
 			)
-			
-			for i,child in pairs(parent_children) do
+			for i,child in pairs(children) do
 				if child~=self then
 					child.index.value=i
 				end
@@ -224,8 +229,25 @@ return function(lumiere)
 
 	function gel_object:get_child(name)
 		if self.children_name[name] then
-			return self.children_name[name][1]
+			return next(self.children_name[name])
 		end
+	end
+	
+	function gel_object:set(property_name,value)
+		local property=self[property_name]
+		
+		assert(
+			property,
+			("Property %s does not exist in %s!"):format(property,self)
+		)
+		assert(
+			getmetatable(property)==eztask.property,
+			("%s is not a property!"):format(property_name)
+		)
+		
+		property.value=value
+		
+		return self
 	end
 	
 	------------------------------[gui]------------------------------
@@ -242,18 +264,53 @@ return function(lumiere)
 		
 		self.resolution      = eztask.property.new(lmath.vector2.new(0,0))
 		self.cursor_position = eztask.property.new(lmath.vector2.new(0,0))
+		self.focused_text    = eztask.property.new()
 		
 		self.cursor_pressed  = eztask.signal.new()
 		self.cursor_released = eztask.signal.new()
+		self.key_pressed     = eztask.signal.new()
+		self.key_released    = eztask.signal.new()
+		self.text_input      = eztask.signal.new()
 		
 		self.cursor_position:attach(function(_,position)
 			self:append_cursor(position.x,position.y)
 		end,true)
 		self.cursor_pressed:attach(function(_,button,x,y)
+			self.focused_text.value=nil
 			self:append_cursor(x,y,button,1,true)
 		end,true)
 		self.cursor_released:attach(function(_,button,x,y)
 			self:append_cursor(x,y,button,1,false)
+		end,true)
+		
+		self.text_input:attach(function(_,char)
+			local text_object=self.focused_text.value
+			if text_object and text_object.editable.value then
+				local text=text_object.text.value
+				text_object.text.value=text:sub(0,text_object.cursor_position.value)..char..text:sub(text_object.cursor_position.value+1,#text)
+				text_object.cursor_position.value=text_object.cursor_position.value+1
+			end
+		end,true)
+		
+		self.key_pressed:attach(function(_,key)
+			local text_object=self.focused_text.value
+			if text_object and text_object.editable.value then
+				local text=text_object.text.value
+				if key=="left" then
+					text_object.cursor_position.value=lmath.clamp(text_object.cursor_position.value-1,0,#text)
+				elseif key=="right" then
+					text_object.cursor_position.value=lmath.clamp(text_object.cursor_position.value+1,0,#text)
+				elseif key=="backspace" then
+					text_object.text.value=text:sub(0,lmath.clamp(text_object.cursor_position.value-1,0,#text))..text:sub(text_object.cursor_position.value+1,#text)
+					text_object.cursor_position.value=lmath.clamp(text_object.cursor_position.value-1,0,#text)
+				elseif key=="tab" then
+					text_object.text.value=text:sub(0,text_object.cursor_position.value).."\t"..text:sub(text_object.cursor_position.value+1,#text)
+					text_object.cursor_position.value=text_object.cursor_position.value+1
+				elseif key=="return" and text_object.multiline.value then
+					text_object.text.value=text:sub(0,text_object.cursor_position.value).."\n"..text:sub(text_object.cursor_position.value+1,#text)
+					text_object.cursor_position.value=text_object.cursor_position.value+1
+				end
+			end
 		end,true)
 	end
 	
@@ -261,6 +318,7 @@ return function(lumiere)
 		gui.super.delete(self)
 		
 		self.resolution:detach()
+		self.focused_text:detach()
 		self.cursor_position:detach()
 		
 		self.cursor_pressed:detach()
@@ -453,7 +511,7 @@ return function(lumiere)
 		self.released:detach()
 	end
 	
-	function element:update_geometry() --This was a huge pain, probably should've used matrices...
+	function element:update_geometry() --Probably should've used matrices...
 		local parent   = self.parent.value
 		local position = self.position.value
 		local size     = self.size.value
@@ -606,7 +664,7 @@ return function(lumiere)
 		end
 	end
 	
-	function element:draw() end --Abstract
+	function element:draw() end
 	function element:draw_render() end
 	function element:draw_buffer() end
 	
@@ -715,74 +773,15 @@ return function(lumiere)
 		self.background_opacity:detach()
 	end
 	
-	------------------------------[text_label]------------------------------
-	local text_label=frame:extend()
+	------------------------------[image_element]------------------------------
+	local image_element=frame:extend()
 	
-	function text_label:__tostring()
-		return "text_label"
+	function image_element:__tostring()
+		return "image_element"
 	end
 	
-	function text_label:new()
-		text_label.super.new(self)
-		
-		self.font             = eztask.property.new()
-		self.text             = eztask.property.new("")
-		self.text_color       = eztask.property.new(lmath.color3.new(1,1,1))
-		self.text_opacity     = eztask.property.new(0)
-		self.text_size        = eztask.property.new(12)
-		self.text_scaled      = eztask.property.new(false)
-		self.text_wrapped     = eztask.property.new(false)
-		self.text_x_alignment = eztask.property.new(gel.enum.alignment.x.center)
-		self.text_y_alignment = eztask.property.new(gel.enum.alignment.y.center)
-		self.filter_mode      = eztask.property.new(gel.enum.filter_mode.nearest)
-		self.selectable       = eztask.property.new(false)
-		
-		--Read only
-		self.cursor_position = eztask.property.new()
-		self.highlighted     = eztask.property.new()
-		
-		self.font:attach(self._draw,true)
-		self.text:attach(self._draw,true)
-		self.text_color:attach(self._draw,true)
-		self.text_opacity:attach(self._draw,true)
-		self.text_size:attach(self._draw,true)
-		self.text_scaled:attach(self._draw,true)
-		self.text_wrapped:attach(self._draw,true)
-		self.text_x_alignment:attach(self._draw,true)
-		self.text_y_alignment:attach(self._draw,true)
-		self.filter_mode:attach(self._draw,true)
-		self.selectable:attach(self._draw,true)
-		self.cursor_position:attach(self._draw,true)
-		self.highlighted:attach(self._draw,true)
-	end
-	
-	function text_label:delete()
-		text_label.super.delete(self)
-		
-		self.font:detach()
-		self.text:detach()
-		self.text_color:detach()
-		self.text_opacity:detach()
-		self.text_size:detach()
-		self.text_scaled:detach()
-		self.text_wrapped:detach()
-		self.text_x_alignment:detach()
-		self.text_y_alignment:detach()
-		self.filter_mode:detach()
-		self.selectable:detach()
-		self.cursor_position:detach()
-		self.highlighted:detach()
-	end
-	
-	------------------------------[image_label]------------------------------
-	local image_label=frame:extend()
-	
-	function image_label:__tostring()
-		return "image_label"
-	end
-	
-	function image_label:new()
-		image_label.super.new(self)
+	function image_element:new()
+		image_element.super.new(self)
 		
 		self.image         = eztask.property.new()
 		self.image_opacity = eztask.property.new(1)
@@ -803,8 +802,8 @@ return function(lumiere)
 		self.rect_offset:attach(self._draw,true)
 	end
 	
-	function image_label:delete()
-		image_label.super.delete(self)
+	function image_element:delete()
+		image_element.super.delete(self)
 		
 		self.image:detach()
 		self.image_opacity:detach()
@@ -816,14 +815,126 @@ return function(lumiere)
 		self.rect_offset:detach()
 	end
 	
+	------------------------------[text_element]------------------------------
+	local text_element=frame:extend()
+	
+	function text_element:__tostring()
+		return "text_element"
+	end
+	
+	function text_element:new()
+		text_element.super.new(self)
+		
+		self.font              = eztask.property.new()
+		self.text              = eztask.property.new("")
+		self.text_color        = eztask.property.new(lmath.color3.new(1,1,1))
+		self.text_opacity      = eztask.property.new(0)
+		self.text_size         = eztask.property.new(12)
+		self.text_scaled       = eztask.property.new(false)
+		self.text_wrapped      = eztask.property.new(false)
+		self.multiline         = eztask.property.new(false)
+		self.text_x_alignment  = eztask.property.new(gel.enum.alignment.x.center)
+		self.text_y_alignment  = eztask.property.new(gel.enum.alignment.y.center)
+		self.filter_mode       = eztask.property.new(gel.enum.filter_mode.nearest)
+		self.focused           = eztask.property.new(false)
+		self.selectable        = eztask.property.new(false)
+		self.editable          = eztask.property.new(false)
+		self.cursor_position   = eztask.property.new(0)
+		self.highlight_opacity = eztask.property.new(0.5)
+		self.highlight_color   = eztask.property.new(lmath.color3.new(0,0.2,1))
+		self.highlight_start   = eztask.property.new(0)
+		self.highlight_end     = eztask.property.new(0)
+		
+		self.font:attach(self._draw,true)
+		self.text:attach(self._draw,true)
+		self.text_color:attach(self._draw,true)
+		self.text_opacity:attach(self._draw,true)
+		self.text_size:attach(self._draw,true)
+		self.text_scaled:attach(self._draw,true)
+		self.text_wrapped:attach(self._draw,true)
+		self.multiline:attach(self._draw,true)
+		self.text_x_alignment:attach(self._draw,true)
+		self.text_y_alignment:attach(self._draw,true)
+		self.filter_mode:attach(self._draw,true)
+		self.focused:attach(self._draw,true)
+		self.cursor_position:attach(self._draw,true)
+		self.highlight_opacity:attach(self._draw,true)
+		self.highlight_color:attach(self._draw,true)
+		self.highlight_start:attach(self._draw,true)
+		self.highlight_end:attach(self._draw,true)
+		
+		self.gui:attach(function(_,new_gui,old_gui)
+			if self.focused_text_event then
+				self.focused_text_event:detach()
+				self.focused_text_event=nil
+			end
+			if old_gui and old_gui.focused_text.value==self then
+				old_gui.focused_text.value=nil
+			end
+			if new_gui then
+				self.focused_text_event=new_gui.focused_text:attach(function(_,element)
+					self.focused.value=(element==self)
+				end,true)
+			end
+		end,true)
+		
+		self.focused:attach(function(_,focused)
+			if self.gui.value then
+				if focused then
+					self.gui.value.focused_text.value=self
+				elseif self.gui.value.focused_text.value==self then
+					self.gui.value.focused_text.value=nil
+				end
+			end
+		end,true)
+		
+		self.selected:attach(function(_,selected)
+			if selected and self.selectable.value then
+				self.focused.value=true
+			end
+		end,true)
+	end
+	
+	function text_element:delete()
+		text_element.super.delete(self)
+		
+		self.font:detach()
+		self.text:detach()
+		self.text_color:detach()
+		self.text_opacity:detach()
+		self.text_size:detach()
+		self.text_scaled:detach()
+		self.text_wrapped:detach()
+		self.multiline:detach()
+		self.text_x_alignment:detach()
+		self.text_y_alignment:detach()
+		self.filter_mode:detach()
+		self.focused:detach()
+		self.selectable:detach()
+		self.editable:detach()
+		self.cursor_position:detach()
+		self.highlight_opacity:detach()
+		self.highlight_color:detach()
+		self.highlight_start:detach()
+		self.highlight_end:detach()
+		
+		if self.focused_text_event then
+			self.focused_text_event:detach()
+			self.focused_text_event=nil
+		end
+		
+		if self.gui.value and self.gui.value.focused_text.value==self then
+			self.gui.value.focused_text.value=nil
+		end
+	end
+	
 	----------------------------------------------------------------------
 	gel.class.gel_object  = gel_object
-	gel.class.interactor  = interactor
-	gel.class.element     = element
 	gel.class.gui         = gui
+	gel.class.element     = element
 	gel.class.frame       = frame
-	gel.class.image_label = image_label
-	gel.class.text_label  = text_label
+	gel.class.image_element = image_element
+	gel.class.text_element  = text_element
 	
 	return gel
 end
