@@ -137,18 +137,15 @@ return function(lumiere)
 				return
 			end
 			if old_parent then
-				local children=old_parent.children
 				if old_parent.children_name[name] then
 					old_parent.children_name[name][self]=nil
-				end
-				for i=1,#children do
-					if children[i]==self then
-						remove(children,i)
-						break
+					if not next(old_parent.children_name[name]) then
+						old_parent.children_name[name]=nil
 					end
 				end
-				for i=1,#children do
-					children[i].index.value=i
+				remove(old_parent.children,self.index.value)
+				for i=self.index.value,#old_parent.children do
+					old_parent.children[i].index.value=i
 				end
 				old_parent.child_removed:invoke(self)
 			end
@@ -169,6 +166,9 @@ return function(lumiere)
 			end
 			if old_name and parent.children_name[old_name] then
 				parent.children_name[old_name][self]=nil
+				if not next(parent.children_name[name]) then
+					parent.children_name[name]=nil
+				end
 			end
 			if new_name then
 				local objects=parent.children_name[new_name] or {}
@@ -187,8 +187,7 @@ return function(lumiere)
 			end
 			for i,child in pairs(children) do
 				if child==self then
-					remove(children,i)
-					break
+					remove(children,i);break
 				end
 			end
 			insert(
@@ -197,19 +196,18 @@ return function(lumiere)
 				self
 			)
 			for i,child in pairs(children) do
-				if child~=self then
-					child.index.value=i
-				end
+				child.index.value=i
 			end
 		end,true)
 	end
 
 	function gel_object:delete()
-		for _,child in pairs(self.children) do
+		self.parent.value=nil
+		
+		for i=#self.children,1,-1 do
+			local child=self.children[i]
 			child:delete()
 		end
-		
-		self.parent.value=nil
 		
 		self.parent:detach()
 		self.name:detach()
@@ -238,11 +236,11 @@ return function(lumiere)
 		
 		assert(
 			property,
-			("Property %s does not exist in %s!"):format(property,self)
+			("Property %s does not exist in %s"):format(property,self)
 		)
 		assert(
 			getmetatable(property)==eztask.property,
-			("%s is not a property!"):format(property_name)
+			("%s is not a property"):format(property_name)
 		)
 		
 		property.value=value
@@ -317,12 +315,17 @@ return function(lumiere)
 	function gui:delete()
 		gui.super.delete(self)
 		
+		self.targeted_elements={}
+		
 		self.resolution:detach()
 		self.focused_text:detach()
 		self.cursor_position:detach()
 		
 		self.cursor_pressed:detach()
 		self.cursor_released:detach()
+		self.key_pressed:detach()
+		self.key_released:detach()
+		self.text_input:detach()
 	end
 	
 	function gui:draw()
@@ -390,7 +393,7 @@ return function(lumiere)
 			self._draw()
 		end
 		
-		self.visible      = eztask.property.new(false)
+		self.visible      = eztask.property.new(true)
 		self.position     = eztask.property.new(lmath.udim2.new(0,0,0,0))
 		self.size         = eztask.property.new(lmath.udim2.new(0,0,0,0))
 		self.rotation     = eztask.property.new(0)
@@ -493,6 +496,7 @@ return function(lumiere)
 		self.rotation:detach()
 		self.anchor_point:detach()
 		self.clip:detach()
+		self.active:detach()
 		
 		self.gui:detach()
 		self.clip_parent:detach()
@@ -929,10 +933,10 @@ return function(lumiere)
 	end
 	
 	----------------------------------------------------------------------
-	gel.class.gel_object  = gel_object
-	gel.class.gui         = gui
-	gel.class.element     = element
-	gel.class.frame       = frame
+	gel.class.gel_object    = gel_object
+	gel.class.gui           = gui
+	gel.class.element       = element
+	gel.class.frame         = frame
 	gel.class.image_element = image_element
 	gel.class.text_element  = text_element
 	
