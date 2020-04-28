@@ -1,8 +1,5 @@
 # GEL - Graphic Elements Library
-An RMGUI framework written in Lua.
-
-This is a renderer agnostic retained-mode GUI. Although it was originally written for 
-Love2D it can be used on other platforms as well.
+An retained-mode graphics framework written in Lua.
 
 # Dependencies
 Unfortunately this library does require some dependencies.
