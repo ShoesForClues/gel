@@ -72,18 +72,9 @@ return function(lumiere)
 	function gel.wrap(class_name,method,wrap)
 		local class=gel.class[class_name]
 		
-		assert(
-			class,
-			"No class named "..tostring(class_name)
-		)
-		assert(
-			class[method],
-			("No method named %s in class %s"):format(method,class)
-		)
-		assert(
-			wrap,
-			"Cannot wrap method with nil"
-		)
+		assert(class,"No class named "..tostring(class_name))
+		assert(class[method],("No method named %s in class %s"):format(method,class))
+		assert(wrap,"Cannot wrap method with nil")
 		
 		local _method=class[method]
 		class[method]=function(...) _method(...);wrap(...) end
@@ -94,10 +85,7 @@ return function(lumiere)
 	function gel.new(class_name)
 		local class=gel.class[class_name]
 		
-		assert(
-			class,
-			"No class named "..tostring(class_name)
-		)
+		--assert(class,"No class named "..tostring(class_name))
 		
 		return class()
 	end
@@ -147,7 +135,7 @@ return function(lumiere)
 				for i=self.index.value,#old_parent.children do
 					old_parent.children[i].index.value=i
 				end
-				old_parent.child_removed:invoke(self)
+				old_parent.child_removed(self)
 			end
 			if new_parent then
 				local objects=new_parent.children_name[name] or {}
@@ -155,7 +143,7 @@ return function(lumiere)
 				new_parent.children_name[name]=objects
 				self.index._value=#new_parent.children+1
 				new_parent.children[self.index.value]=self
-				new_parent.child_added:invoke(self)
+				new_parent.child_added(self)
 			end
 		end,true)
 		
@@ -205,8 +193,7 @@ return function(lumiere)
 		self.parent.value=nil
 		
 		for i=#self.children,1,-1 do
-			local child=self.children[i]
-			child:delete()
+			self.children[i]:delete()
 		end
 		
 		self.parent:detach()
@@ -234,6 +221,7 @@ return function(lumiere)
 	function gel_object:set(property_name,value)
 		local property=self[property_name]
 		
+		--[[
 		assert(
 			property,
 			("Property %s does not exist in %s"):format(property,self)
@@ -242,6 +230,7 @@ return function(lumiere)
 			getmetatable(property)==eztask.property,
 			("%s is not a property"):format(property_name)
 		)
+		]]
 		
 		property.value=value
 		
@@ -285,7 +274,11 @@ return function(lumiere)
 			local text_object=self.focused_text.value
 			if text_object and text_object.editable.value then
 				local text=text_object.text.value
-				text_object.text.value=text:sub(0,text_object.cursor_position.value)..char..text:sub(text_object.cursor_position.value+1,#text)
+				text_object.text.value=(
+					text:sub(0,text_object.cursor_position.value)..
+					char..
+					text:sub(text_object.cursor_position.value+1,#text)
+				)
 				text_object.cursor_position.value=text_object.cursor_position.value+1
 			end
 		end,true)
@@ -295,17 +288,40 @@ return function(lumiere)
 			if text_object and text_object.editable.value then
 				local text=text_object.text.value
 				if key=="left" then
-					text_object.cursor_position.value=lmath.clamp(text_object.cursor_position.value-1,0,#text)
+					text_object.cursor_position.value=lmath.clamp(
+						text_object.cursor_position.value-1,
+						0,
+						#text
+					)
 				elseif key=="right" then
-					text_object.cursor_position.value=lmath.clamp(text_object.cursor_position.value+1,0,#text)
+					text_object.cursor_position.value=lmath.clamp(
+						text_object.cursor_position.value+1,
+						0,
+						#text
+					)
 				elseif key=="backspace" then
-					text_object.text.value=text:sub(0,lmath.clamp(text_object.cursor_position.value-1,0,#text))..text:sub(text_object.cursor_position.value+1,#text)
-					text_object.cursor_position.value=lmath.clamp(text_object.cursor_position.value-1,0,#text)
+					text_object.text.value=(
+						text:sub(0,lmath.clamp(text_object.cursor_position.value-1,0,#text))..
+						text:sub(text_object.cursor_position.value+1,#text)
+					)
+					text_object.cursor_position.value=lmath.clamp(
+						text_object.cursor_position.value-1,
+						0,
+						#text
+					)
 				elseif key=="tab" then
-					text_object.text.value=text:sub(0,text_object.cursor_position.value).."\t"..text:sub(text_object.cursor_position.value+1,#text)
+					text_object.text.value=(
+						text:sub(0,text_object.cursor_position.value)..
+						"\t"..
+						text:sub(text_object.cursor_position.value+1,#text)
+					)
 					text_object.cursor_position.value=text_object.cursor_position.value+1
 				elseif key=="return" and text_object.multiline.value then
-					text_object.text.value=text:sub(0,text_object.cursor_position.value).."\n"..text:sub(text_object.cursor_position.value+1,#text)
+					text_object.text.value=(
+						text:sub(0,text_object.cursor_position.value)..
+						"\n"..
+						text:sub(text_object.cursor_position.value+1,#text)
+					)
 					text_object.cursor_position.value=text_object.cursor_position.value+1
 				end
 			end
@@ -482,7 +498,7 @@ return function(lumiere)
 				self.selected.value=false
 			end
 			if self.targeted.value then
-				self.clicked:invoke(button,id,x,y)
+				self.clicked(button,id,x,y)
 			end
 		end,true)
 	end
@@ -629,25 +645,25 @@ return function(lumiere)
 		if self.absolute_size.value.x~=abs_size_x or self.absolute_size.value.y~=abs_size_y then
 			self.absolute_size.value.x=abs_size_x
 			self.absolute_size.value.y=abs_size_y
-			self.absolute_size:invoke(self.absolute_size.value)
+			self.absolute_size(self.absolute_size.value)
 			update_child_geometry=true
 		end
 		if self.absolute_position.value.x~=abs_pos_x or self.absolute_position.value.y~=abs_pos_y then
 			self.absolute_position.value.x=abs_pos_x
 			self.absolute_position.value.y=abs_pos_y
-			self.absolute_position:invoke(self.absolute_position.value)
+			self.absolute_position(self.absolute_position.value)
 			update_child_geometry=true
 		end
 		if self.absolute_anchor.value.x~=abs_anchor_x or self.absolute_anchor.value.y~=abs_anchor_y then
 			self.absolute_anchor.value.x=abs_anchor_x
 			self.absolute_anchor.value.y=abs_anchor_y
-			self.absolute_anchor:invoke(self.absolute_anchor.value)
+			self.absolute_anchor(self.absolute_anchor.value)
 			update_child_geometry=true
 		end
 		if self.relative_position.value.x~=rel_pos_x or self.relative_position.value.y~=rel_pos_y then
 			self.relative_position.value.x=rel_pos_x
 			self.relative_position.value.y=rel_pos_y
-			self.relative_position:invoke(self.relative_position.value)
+			self.relative_position(self.relative_position.value)
 			update_child_geometry=true
 		end
 		if self.absolute_rotation.value~=abs_rot then
@@ -731,9 +747,9 @@ return function(lumiere)
 			self.gui.value.targeted_elements[self]=self
 			if button then
 				if state then
-					self.pressed:invoke(button,id,x,y)
+					self.pressed(button,id,x,y)
 				else
-					self.released:invoke(button,id,x,y)
+					self.released(button,id,x,y)
 				end
 				debounce=self.active.value
 			end
