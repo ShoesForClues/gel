@@ -1,5 +1,5 @@
 # GEL - Graphic Elements Library
-An retained-mode graphics framework written in Lua.
+A retained-mode graphics framework written in Lua.
 
 # Dependencies
 Unfortunately this library does require some dependencies.
