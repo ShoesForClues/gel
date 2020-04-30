@@ -154,8 +154,8 @@ return function(lumiere)
 			end
 			if old_name and parent.children_name[old_name] then
 				parent.children_name[old_name][self]=nil
-				if not next(parent.children_name[name]) then
-					parent.children_name[name]=nil
+				if not next(parent.children_name[old_name]) then
+					parent.children_name[old_name]=nil
 				end
 			end
 			if new_name then
@@ -268,6 +268,14 @@ return function(lumiere)
 		end,true)
 		self.cursor_released:attach(function(_,button,x,y)
 			self:append_cursor(x,y,button,1,false)
+		end,true)
+		
+		self.resolution:attach(function()
+			for _,child in pairs(self.children) do
+				if child.update_geometry then
+					child:update_geometry()
+				end
+			end
 		end,true)
 		
 		self.text_input:attach(function(_,char)
@@ -408,6 +416,11 @@ return function(lumiere)
 			self.redraw=true
 			self._draw()
 		end
+		self._update_geometry=function()
+			if self:update_geometry() then
+				self._redraw()
+			end
+		end
 		
 		self.visible      = eztask.property.new(true)
 		self.position     = eztask.property.new(lmath.udim2.new(0,0,0,0))
@@ -435,24 +448,22 @@ return function(lumiere)
 		self.released = eztask.signal.new()
 		
 		--Ugly callbacks
-		self.parent:attach(self._redraw,true)
 		self.index:attach(self._draw,true)
 		self.visible:attach(self._draw,true)
-		self.position:attach(self._draw,true)
-		self.rotation:attach(self._draw,true)
-		self.anchor_point:attach(self._draw,true)
-		self.size:attach(self._redraw,true)
-		self.absolute_size:attach(self._redraw,true)
-		self.absolute_position:attach(self._draw,true)
-		self.absolute_anchor:attach(self._draw,true)
-		self.absolute_rotation:attach(self._draw,true)
-		self.relative_rotation:attach(self._draw,true)
-		self.relative_position:attach(self._draw,true)
+		
+		--self.parent:attach(self._update_geometry,true)
+		--self.gui:attach(self._update_geometry,true)
+		self.clip_parent:attach(self._update_geometry,true)
+		self.position:attach(self._update_geometry,true)
+		self.rotation:attach(self._update_geometry,true)
+		self.anchor_point:attach(self._update_geometry,true)
+		self.size:attach(self._update_geometry,true)
 		
 		self.child_removed:attach(self._redraw,true)
 		self.child_added:attach(self._redraw,true)
 		
 		self.parent:attach(function(_,new_parent,old_parent)
+			self._update_geometry()
 			if new_parent then
 				if new_parent:is(gui) then
 					self.gui.value=new_parent
@@ -467,6 +478,7 @@ return function(lumiere)
 		end,true)
 		
 		self.gui:attach(function(_,new_gui,old_gui)
+			self._update_geometry()
 			if old_gui then
 				old_gui.targeted_elements[self]=nil
 			end
@@ -640,48 +652,50 @@ return function(lumiere)
 			rel_rot=self.rotation.value
 		end
 		
-		local update_child_geometry=false
+		local geometry_changed=false
 		
 		if self.absolute_size.value.x~=abs_size_x or self.absolute_size.value.y~=abs_size_y then
 			self.absolute_size.value.x=abs_size_x
 			self.absolute_size.value.y=abs_size_y
 			self.absolute_size(self.absolute_size.value)
-			update_child_geometry=true
+			geometry_changed=true
 		end
 		if self.absolute_position.value.x~=abs_pos_x or self.absolute_position.value.y~=abs_pos_y then
 			self.absolute_position.value.x=abs_pos_x
 			self.absolute_position.value.y=abs_pos_y
 			self.absolute_position(self.absolute_position.value)
-			update_child_geometry=true
+			geometry_changed=true
 		end
 		if self.absolute_anchor.value.x~=abs_anchor_x or self.absolute_anchor.value.y~=abs_anchor_y then
 			self.absolute_anchor.value.x=abs_anchor_x
 			self.absolute_anchor.value.y=abs_anchor_y
 			self.absolute_anchor(self.absolute_anchor.value)
-			update_child_geometry=true
+			geometry_changed=true
 		end
 		if self.relative_position.value.x~=rel_pos_x or self.relative_position.value.y~=rel_pos_y then
 			self.relative_position.value.x=rel_pos_x
 			self.relative_position.value.y=rel_pos_y
 			self.relative_position(self.relative_position.value)
-			update_child_geometry=true
+			geometry_changed=true
 		end
 		if self.absolute_rotation.value~=abs_rot then
 			self.absolute_rotation.value=abs_rot
-			update_child_geometry=true
+			geometry_changed=true
 		end
 		if self.relative_rotation.value~=rel_rot then
 			self.relative_rotation.value=rel_rot
-			update_child_geometry=true
+			geometry_changed=true
 		end
 		
-		if update_child_geometry then
+		if geometry_changed then
 			for _,child in pairs(self.children) do
 				if child.update_geometry then
 					child:update_geometry()
 				end
 			end
 		end
+		
+		return geometry_changed
 	end
 	
 	function element:draw() end
@@ -693,7 +707,6 @@ return function(lumiere)
 			return
 		end
 		
-		self:update_geometry()
 		self:draw()
 		
 		if self.redraw or not self.clip.value then
