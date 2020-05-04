@@ -145,7 +145,7 @@ return function(lumiere)
 				new_parent.children[self.index.value]=self
 				new_parent.child_added(self)
 			end
-		end,true)
+		end)
 		
 		self.name:attach(function(_,new_name,old_name)
 			local parent=self.parent.value
@@ -163,7 +163,7 @@ return function(lumiere)
 				objects[self]=self
 				parent.children_name[new_name]=objects
 			end
-		end,true)
+		end)
 		
 		self.index:attach(function(_,new_index,old_index)
 			if not self.parent.value then
@@ -186,7 +186,7 @@ return function(lumiere)
 			for i,child in pairs(children) do
 				child.index.value=i
 			end
-		end,true)
+		end)
 	end
 
 	function gel_object:delete()
@@ -261,14 +261,14 @@ return function(lumiere)
 		
 		self.cursor_position:attach(function(_,position)
 			self:append_cursor(position.x,position.y)
-		end,true)
+		end)
 		self.cursor_pressed:attach(function(_,button,x,y)
 			self.focused_text.value=nil
 			self:append_cursor(x,y,button,1,true)
-		end,true)
+		end)
 		self.cursor_released:attach(function(_,button,x,y)
 			self:append_cursor(x,y,button,1,false)
-		end,true)
+		end)
 		
 		self.resolution:attach(function()
 			for _,child in pairs(self.children) do
@@ -276,7 +276,7 @@ return function(lumiere)
 					child:update_geometry()
 				end
 			end
-		end,true)
+		end)
 		
 		self.text_input:attach(function(_,char)
 			local text_object=self.focused_text.value
@@ -289,7 +289,7 @@ return function(lumiere)
 				)
 				text_object.cursor_position.value=text_object.cursor_position.value+1
 			end
-		end,true)
+		end)
 		
 		self.key_pressed:attach(function(_,key)
 			local text_object=self.focused_text.value
@@ -333,7 +333,7 @@ return function(lumiere)
 					text_object.cursor_position.value=text_object.cursor_position.value+1
 				end
 			end
-		end,true)
+		end)
 	end
 	
 	function gui:delete()
@@ -417,7 +417,10 @@ return function(lumiere)
 			self._draw()
 		end
 		self._update_geometry=function()
-			if self:update_geometry() then
+			local orientation_changed,geometry_changed=self:update_geometry()
+			if orientation_changed then
+				self._draw()
+			elseif geometry_changed then
 				self._redraw()
 			end
 		end
@@ -448,19 +451,19 @@ return function(lumiere)
 		self.released = eztask.signal.new()
 		
 		--Ugly callbacks
-		self.index:attach(self._draw,true)
-		self.visible:attach(self._draw,true)
+		self.index:attach(self._draw)
+		self.visible:attach(self._draw)
 		
 		--self.parent:attach(self._update_geometry,true)
 		--self.gui:attach(self._update_geometry,true)
-		self.clip_parent:attach(self._update_geometry,true)
-		self.position:attach(self._update_geometry,true)
-		self.rotation:attach(self._update_geometry,true)
-		self.anchor_point:attach(self._update_geometry,true)
-		self.size:attach(self._update_geometry,true)
+		self.clip_parent:attach(self._update_geometry)
+		self.position:attach(self._update_geometry)
+		self.rotation:attach(self._update_geometry)
+		self.anchor_point:attach(self._update_geometry)
+		self.size:attach(self._update_geometry)
 		
-		self.child_removed:attach(self._redraw,true)
-		self.child_added:attach(self._redraw,true)
+		self.child_removed:attach(self._redraw)
+		self.child_added:attach(self._redraw)
 		
 		self.parent:attach(function(_,new_parent,old_parent)
 			self._update_geometry()
@@ -475,7 +478,7 @@ return function(lumiere)
 			else
 				self.gui.value=nil
 			end
-		end,true)
+		end)
 		
 		self.gui:attach(function(_,new_gui,old_gui)
 			self._update_geometry()
@@ -487,7 +490,7 @@ return function(lumiere)
 					child.gui.value=new_gui
 				end
 			end
-		end,true)
+		end)
 		
 		self.targeted:attach(function(_,targeted)
 			if not self.gui.value then
@@ -497,13 +500,13 @@ return function(lumiere)
 				self.selected.value=false
 				self.gui.value.targeted_elements[self]=nil
 			end
-		end,true)
+		end)
 		
 		self.pressed:attach(function(_,button,id,x,y)
 			if button==1 then
 				self.selected.value=true
 			end
-		end,true)
+		end)
 		
 		self.released:attach(function(_,button,id,x,y)
 			if button==1 then
@@ -512,7 +515,7 @@ return function(lumiere)
 			if self.targeted.value then
 				self.clicked(button,id,x,y)
 			end
-		end,true)
+		end)
 	end
 	
 	function element:delete()
@@ -558,6 +561,9 @@ return function(lumiere)
 		local rel_pos_x    = self.relative_position.value.x
 		local rel_pos_y    = self.relative_position.value.y
 		local rel_rot      = self.relative_rotation.value
+		
+		local orientation_changed = false
+		local geometry_changed    = false
 		
 		if parent and parent:is(element) then
 			local clip_parent=self.clip_parent.value or parent
@@ -652,8 +658,6 @@ return function(lumiere)
 			rel_rot=self.rotation.value
 		end
 		
-		local geometry_changed=false
-		
 		if self.absolute_size.value.x~=abs_size_x or self.absolute_size.value.y~=abs_size_y then
 			self.absolute_size.value.x=abs_size_x
 			self.absolute_size.value.y=abs_size_y
@@ -664,30 +668,35 @@ return function(lumiere)
 			self.absolute_position.value.x=abs_pos_x
 			self.absolute_position.value.y=abs_pos_y
 			self.absolute_position(self.absolute_position.value)
-			geometry_changed=true
+			--geometry_changed=true
+			orientation_changed=true
 		end
 		if self.absolute_anchor.value.x~=abs_anchor_x or self.absolute_anchor.value.y~=abs_anchor_y then
 			self.absolute_anchor.value.x=abs_anchor_x
 			self.absolute_anchor.value.y=abs_anchor_y
 			self.absolute_anchor(self.absolute_anchor.value)
-			geometry_changed=true
+			--geometry_changed=true
+			orientation_changed=true
 		end
 		if self.relative_position.value.x~=rel_pos_x or self.relative_position.value.y~=rel_pos_y then
 			self.relative_position.value.x=rel_pos_x
 			self.relative_position.value.y=rel_pos_y
 			self.relative_position(self.relative_position.value)
-			geometry_changed=true
+			--geometry_changed=true
+			orientation_changed=true
 		end
 		if self.absolute_rotation.value~=abs_rot then
 			self.absolute_rotation.value=abs_rot
-			geometry_changed=true
+			--geometry_changed=true
+			orientation_changed=true
 		end
 		if self.relative_rotation.value~=rel_rot then
 			self.relative_rotation.value=rel_rot
-			geometry_changed=true
+			--geometry_changed=true
+			orientation_changed=true
 		end
 		
-		if geometry_changed then
+		if geometry_changed or orientation_changed then
 			for _,child in pairs(self.children) do
 				if child.update_geometry then
 					child:update_geometry()
@@ -695,7 +704,7 @@ return function(lumiere)
 			end
 		end
 		
-		return geometry_changed
+		return orientation_changed,geometry_changed
 	end
 	
 	function element:draw() end
@@ -795,8 +804,8 @@ return function(lumiere)
 		self.background_color   = eztask.property.new(lmath.color3.new(1,1,1))
 		self.background_opacity = eztask.property.new(1)
 		
-		self.background_color:attach(self._draw,true)
-		self.background_opacity:attach(self._draw,true)
+		self.background_color:attach(self._draw)
+		self.background_opacity:attach(self._draw)
 	end
 	
 	function frame:delete()
@@ -825,14 +834,14 @@ return function(lumiere)
 		self.tile_size     = eztask.property.new(lmath.udim2.new(1,0,1,0))
 		self.rect_offset   = eztask.property.new(lmath.rect.new(0,0,1,1))
 		
-		self.image:attach(self._draw,true)
-		self.image_opacity:attach(self._draw,true)
-		self.image_color:attach(self._draw,true)
-		self.scale_mode:attach(self._draw,true)
-		self.filter_mode:attach(self._draw,true)
-		self.slice_center:attach(self._draw,true)
-		self.tile_size:attach(self._draw,true)
-		self.rect_offset:attach(self._draw,true)
+		self.image:attach(self._draw)
+		self.image_opacity:attach(self._draw)
+		self.image_color:attach(self._draw)
+		self.scale_mode:attach(self._draw)
+		self.filter_mode:attach(self._draw)
+		self.slice_center:attach(self._draw)
+		self.tile_size:attach(self._draw)
+		self.rect_offset:attach(self._draw)
 	end
 	
 	function image_element:delete()
@@ -878,23 +887,23 @@ return function(lumiere)
 		self.highlight_start   = eztask.property.new(0)
 		self.highlight_end     = eztask.property.new(0)
 		
-		self.font:attach(self._draw,true)
-		self.text:attach(self._draw,true)
-		self.text_color:attach(self._draw,true)
-		self.text_opacity:attach(self._draw,true)
-		self.text_size:attach(self._draw,true)
-		self.text_scaled:attach(self._draw,true)
-		self.text_wrapped:attach(self._draw,true)
-		self.multiline:attach(self._draw,true)
-		self.text_x_alignment:attach(self._draw,true)
-		self.text_y_alignment:attach(self._draw,true)
-		self.filter_mode:attach(self._draw,true)
-		self.focused:attach(self._draw,true)
-		self.cursor_position:attach(self._draw,true)
-		self.highlight_opacity:attach(self._draw,true)
-		self.highlight_color:attach(self._draw,true)
-		self.highlight_start:attach(self._draw,true)
-		self.highlight_end:attach(self._draw,true)
+		self.font:attach(self._draw)
+		self.text:attach(self._draw)
+		self.text_color:attach(self._draw)
+		self.text_opacity:attach(self._draw)
+		self.text_size:attach(self._draw)
+		self.text_scaled:attach(self._draw)
+		self.text_wrapped:attach(self._draw)
+		self.multiline:attach(self._draw)
+		self.text_x_alignment:attach(self._draw)
+		self.text_y_alignment:attach(self._draw)
+		self.filter_mode:attach(self._draw)
+		self.focused:attach(self._draw)
+		self.cursor_position:attach(self._draw)
+		self.highlight_opacity:attach(self._draw)
+		self.highlight_color:attach(self._draw)
+		self.highlight_start:attach(self._draw)
+		self.highlight_end:attach(self._draw)
 		
 		self.gui:attach(function(_,new_gui,old_gui)
 			if self.focused_text_event then
@@ -907,9 +916,9 @@ return function(lumiere)
 			if new_gui then
 				self.focused_text_event=new_gui.focused_text:attach(function(_,element)
 					self.focused.value=(element==self)
-				end,true)
+				end)
 			end
-		end,true)
+		end)
 		
 		self.focused:attach(function(_,focused)
 			if self.gui.value then
@@ -919,13 +928,13 @@ return function(lumiere)
 					self.gui.value.focused_text.value=nil
 				end
 			end
-		end,true)
+		end)
 		
 		self.selected:attach(function(_,selected)
 			if selected and self.selectable.value then
 				self.focused.value=true
 			end
-		end,true)
+		end)
 	end
 	
 	function text_element:delete()
